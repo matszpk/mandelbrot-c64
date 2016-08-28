@@ -1,0 +1,2756 @@
+                .p02
+                .segment "STARTUP"
+                ;.word $0801
+                .byte $01
+                .code
+                .byte $08
+                .byte $0b, $08, $01, $00, $9e, $32, $30, $36, $31, $00, $00, $00
+                
+                a32_0 = 2
+                c32_0 = a32_0+4
+                c32_1 = c32_0+1
+                c32_2 = c32_0+2
+                c32_3 = c32_0+3
+                b32_0 = c32_0+4
+                c32_m2 = b32_0+4
+                c32_m1 = b32_0+5
+                fmtemps = c32_m1+1
+                fmtempsend = fmtemps+1
+                
+                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                ; mandel iter vars
+                ; and setup
+                
+                xposstart = $200
+                yposstart = xposstart+4
+                pixdiff = yposstart+4
+                yposend = pixdiff+6
+                xpos = yposend+4
+                ypos = xpos+6
+                xcount = ypos+6
+                ycount = xcount+2
+                ;vicbank = stoprender+1
+                vicbank = ycount+1
+                
+                bordertmp = vicbank+1
+                timecount = bordertmp+1
+                timerdataidx = timecount+6
+                ignoretimerround = timerdataidx+1
+                reqprintreg = ignoretimerround+1
+                historypos = reqprintreg+1
+                isdoquit = historypos+1
+                bordertext = isdoquit+1
+                newxposstart = bordertext+48
+                newyposstart = newxposstart+4
+                newpixdiff = newyposstart+4
+                newyposend = newpixdiff+6
+                newpixdiff319 = newyposend+4
+                newxposend = newpixdiff319+1
+                
+                printedfixed = newpixdiff319+5
+                
+                stoprender = $ff       ; 7-bit stop, 6-bit dot not check
+                
+                keyrepdelay = $02
+                oldkeyfunc = $03
+                dorestart = oldkeyfunc+1
+                printonborder = dorestart+1
+                regselect = printonborder+1
+                regxpos1 = regselect+1
+                regypos1 = regxpos1+2
+                regysize = regypos1+1
+                regxpos2 = regysize+1
+                regypos2 = regxpos2+2
+                ; six byte before for stdmula
+                divtmp = regypos2+1
+                divmode = divtmp+3 ; extra byte for stdmula
+                divquot = divmode+1
+                stdmulc = divquot+2
+                stdmula = stdmulc-6
+                tmpval = divquot+8  ;; stdmulc+6
+                
+                printmula = regypos2+1
+                printinput = printmulb
+                printmulb = printmula+3
+                printmulc = printmulb+7
+                printnum = printmulc+3
+                printtmp = printmula+4
+                
+                keyHome = 0
+                keyZoomMode = 1
+                keyIterInc = 2
+                keyIterDec = 3
+                keyRegSelect = 4
+                keyStart = 5
+                keyMoveUp = 6
+                keyMoveDown = 7
+                keyMoveLeft = 8
+                keyMoveRight = 9
+                keyReturn = 10
+                
+                zpcaddr = $20
+                zpx = zpcaddr-zpcode
+                
+                lda poshistorytbl+256*18
+                lda #0
+                stx $d020
+                stx $d021
+                
+                ldx #0
+@loop:          lda instrtext,x
+                beq @loopend
+                jsr $ffd2
+                inx
+                bne @loop
+                inc @loop+2
+                jmp @loop
+@loopend:
+@nopressed:     jsr $ff9f
+                lda $cb
+                cmp #$40
+                beq @nopressed
+                sei
+                lda #$35
+                sta $01         ; disable KERNAL and BASIC
+                
+                lda #<nmihandler
+                sta $fffa
+                lda #>nmihandler
+                sta $fffb
+                
+;;;;;;;;;;;;;;;;;;;;;;;;
+; initfastmul
+                fmtmphelpcnt = $08
+                fmtmpr = $09
+                
+                ; TBL0 -> i -> a+x = i^2/4
+                ; TBL1 -> i -> x-a+1 = (i-255)^2/4
+                ldy #$fe
+                sty fmtmphelpcnt
+                iny
+                sty fmtmpr+2
+                iny
+                lda #$01
+                sta fmtmpr
+                sty fmtmpr+1 ; 0xff0000 + -> 0x0
+                
+@loop:          sty $02
+                ldx fmtmphelpcnt
+                inx
+                inx
+                php ; for checking
+                
+                tya
+                asl a
+                tay
+                txa
+                rol a
+                tax         ; 2*a
+                tya
+                sbc #$00    ; -1, c=0
+                tay
+                txa
+                sbc #$00
+                tax
+                
+                ; for zero - -1 -> 0xffff, but c=1, -> 0x10000
+                ; add to 
+                tya
+                clc
+                adc fmtmpr
+                sta fmtmpr
+                ;tay
+                txa
+                adc fmtmpr+1
+                sta fmtmpr+1
+                ;tax
+                lda fmtmpr+2
+                adc #$00
+                sta fmtmpr+2
+                
+                ; /4
+                lsr a
+                sta fmtmpr+4
+                lda fmtmpr+1
+                ror a
+                sta fmtmpr+3
+                lda fmtmpr
+                ror a
+                lsr fmtmpr+4
+                ror fmtmpr+3
+                ror a
+                ; pow/4-> acc,fmtmpr+3
+                ldy $02
+                
+@ch1:           sta fmtbl1_lo,y
+                lda fmtmpr+3
+@ch2:           sta fmtbl1_hi,y
+                
+                plp
+                bne @nosqlst
+                lda fmtmpr
+                sta sq2tbl_lo,y
+                lda fmtmpr+1
+                sta sq2tbl_hi,y
+                ; asltbl1
+                tya
+                asl a
+                asl a
+                asl a
+                asl a
+                sta asltbl1,y
+                asl a
+                sta asltbl3,y
+                tya
+                lsr a
+                lsr a
+                lsr a
+                sta asltbl4,y
+                lsr a
+                sta asltbl2,y
+@nosqlst:       
+                iny
+                bne @loop
+                ; change storing address of tables
+                inc @ch1+2
+                inc @ch2+2
+                inc fmtmphelpcnt
+                bne @loop
+                
+@loop2:         tya
+                eor #$ff
+                tax
+                lda fmtbl1_lo,y
+                sta fmtbl2_lo+255,y
+                sta fmtbl2_lo,x
+                lda fmtbl1_hi,y
+                sta fmtbl2_hi+255,y
+                sta fmtbl2_hi,x
+                iny
+                bne @loop2
+                
+                ; init fastmul (zpcode)
+                ldx #0-(zpcodeend-zpcode)
+@fmzploop:      lda zpcodeend-256,x
+                sta <(zpcaddr-256+(zpcodeend-zpcode)),x
+                inx
+                bne @fmzploop
+                
+                stx stoprender
+                stx isdoquit
+                
+                ; disable screen
+                lda #$0b
+                sta $d011
+                
+                lda #0 ; pal timerdata
+tobottomscr:    ldx $d011
+                bpl tobottomscr
+tobottomscr1:   ldx $d011
+                bmi tobottomscr1
+tobottomscr2:   ldx $d011
+                bpl tobottomscr2
+                ldx #30
+@rastercheck:   cpx $d012
+                bne @rastercheck
+                ldx $d011
+                bmi @ispal
+                lda #3  ; ntsc timerdata
+@ispal:
+                sta timerdataidx
+                
+screeninit:
+                jsr initbitmap
+                ;;;;;;;;;;;;;;;;;;;;;;;;;
+                ; initialize screen
+                lda #$6e
+                ldy #$40
+                ldx #$44
+                jsr fillmem
+                ldy #$80
+                ldx #$84
+                jsr fillmem
+                lda #$3
+                ldy #$d8
+                ldx #$dc
+                jsr fillmem
+                lda #$00
+                ldy #$44
+                ldx #$48
+                jsr fillmem
+                ldy #$86
+                ldx #$88
+                jsr fillmem
+                ;;;;;;;;;;;;;;;;;;;;;
+                ; vic setup
+                lda #$18
+                sta $d016
+                lda #$08
+                sta $d018
+                ;;; bank
+                lda $dd00
+                and #$fc
+                ora #$02
+                sta $dd00
+                lda #$02
+                sta vicbank
+                ; bottom text setup (sprites)
+                ldx #$f0
+                lda #24     ; pos setup
+@loop:          sta $d000-$f0,x
+                tay
+                inx
+                lda #$34+200
+                sta $d000-$f0,x
+                tya
+                clc
+                adc #24
+                inx
+                bne @loop
+                ldx #$f8
+                ; colors
+@loop2:         lda #$0f
+                sta $d027-$f8,x
+                txa
+                clc
+                adc #16-$f8
+                sta $43f8-$f8,x
+                inx
+                bne @loop2
+                ;;;;;;;;;;;;;;;;;;;;;
+                ; regselect cursors
+                ldx #$f8
+                ldy #$e8
+@sploop2:       lda regcursor1-$f8,x
+                sta $4600-$e8+13*3,y
+                sta $8600-$e8+13*3,y
+                ; bottom sprite fix
+                pha
+                lda #$ff
+                sta $02
+                lda #<($4680-$e8+14*3)
+                sta $03
+                sta $05
+                lda #>($4680-$e8+14*3)
+                sta $04
+                lda #>($8680-$e8+14*3)
+                sta $06
+                
+@bottomfixloop: pla
+                cpx $02
+                bcs @spnext1
+                sta ($03),y
+                sta ($05),y
+@spnext1:       dec $02
+                pha
+                lda $03
+                clc
+                adc #64+3
+                sta $03
+                sta $05
+                bcc @bflnocarry
+                inc $04
+                inc $06
+@bflnocarry:                
+                cmp #<($4800-$e8+20*3)
+                bne @bottomfixloop
+                pla
+
+                lda regcursor2-$f8,x
+                sta $4640-$e8+13*3,y
+                sta $8640-$e8+13*3,y
+                
+                inx
+                iny
+                iny
+                iny
+                bne @sploop2
+                
+                ;ldx #$00
+                stx $d010
+                stx $d017
+                stx $d01b
+                stx $d01d
+                ;lda #$ff
+                
+                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                ; install irq
+                lda #$7f
+                sta $dc0d
+                sta $dd0d
+                lda $dc0d
+                lda $dd0d
+                
+                ; keyboard reading init
+                
+                lda #$01
+                sta $d01a
+                lda #$fa
+                sta $d012
+                lda #$3b
+                sta $d011
+                
+                lda #<irqhandler
+                sta $fffe
+                lda #>irqhandler
+                sta $ffff
+                
+                cli
+                
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                ; iteration
+                ; real,imag
+                ; real,sr = abs real
+                ; imag,si = abs imag
+                ; tmpr = fastsqr4x4 real
+                ; tmpi = fastsqr4x4 imag
+                ; sum tmpr+tmpi and compare
+                ; end if sum>4
+                ; tmpr -= tmpi
+                ; imag = fastmul4x4 real*imag
+                ; imag <<= 1
+                ; imag = applysign imag,sr^si
+                ; real = fastshift tmpr
+                ; imag = fastshift imag
+                ; real = tmpr + creal
+                ; imag += cimag
+                
+                real = a32_0
+                imag = b32_0
+                tmpr = fmtempsend
+                tmpi = fmtempsend+5
+                sign = tmpi+5
+                creal = sign+1
+                cimag = $f6
+                iter = cimag+4
+                maxiter = iter+1
+                pixeladdr = maxiter+1
+                pixelvalidx = pixeladdr+2
+                
+                lda #$0f
+                sta maxiter
+                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                ; prepare setup
+                ; pixdiff and pixdiff
+                jsr inithomepos
+                                
+                ; mandel render start
+mandelstart:    
+                ldx # 256-48
+@loopx:         lda initialtext-256+48,x
+                sta bordertext-256+48,x
+                inx
+                bne @loopx
+                
+                ldx #48
+                ldy #0
+                jsr borderprint
+                
+                ; init time (and CIA timers)
+                ldx timerdataidx
+                lda timerdata,x
+                sta $dc04
+                lda timerdata+1,x
+                sta $dc05
+                lda timerdata+2,x
+                sta $dc06
+                lda #$00
+                sta $dc07
+                ; start timers
+                lda #$51
+                sta $dc0f
+                lda #$11
+                sta $dc0e
+                lda #01         ; first ignore timer round
+                sta ignoretimerround
+                
+                ldx #$00
+                stx pixeladdr
+                stx pixelvalidx
+                ldx #256-6
+                lda #$f6
+@tcntloop:      sta timecount-256+6,x
+                inx
+                bne @tcntloop
+                
+                lda #$60
+                sta pixeladdr+1
+                
+                lda #$ff
+                sec
+                sbc maxiter
+                sta iterlimit+1
+                
+                
+                ldx #$fc
+@loop:          lda xposstart-$fc,x
+                sta <(real+4),x
+                sta <(creal+4),x
+                sta xpos+2-$fc,x
+                lda yposstart-$fc,x
+                sta <(imag+4),x
+                sta <(cimag+4),x
+                sta ypos+2-$fc,x
+                inx
+                bne @loop
+                stx xpos
+                stx ypos
+                lda #$80
+                sta xpos+1
+                sta ypos+1
+                lda #256-200
+                sta ycount
+                lda #<(-320)
+                sta xcount
+                lda #>(-320)
+                sta xcount+1
+                
+pixelloop:
+iterlimit:      lda #$e0      ; 256-maxiter put
+                sta iter
+                ;---------------------------------
+                ; main loop of iteration
+                ;---------------------------------
+mandelloop:
+                ldx real+3
+                bpl @absskipneg0
+                lda #0
+                sec
+                sbc real+0
+                sta real+0
+                lda #0
+                sbc real+1
+                sta real+1
+                lda #0
+                sbc real+2
+                sta real+2
+                lda #0
+                sbc real+3
+                sta real+3
+@absskipneg0:   txa
+                eor imag+3
+                sta sign
+                ldy imag+3
+                bpl @absskipneg1
+                lda #0
+                sec
+                sbc imag+0
+                sta imag+0
+                lda #0
+                sbc imag+1
+                sta imag+1
+                lda #0
+                sbc imag+2
+                sta imag+2
+                lda #0
+                sbc imag+3
+                sta imag+3
+@absskipneg1:   
+                ; squares real,imag
+                ; input real
+                ; output tmpr = real**2
+fastsqr4x4:
+                lda real
+                sta <(sqc_a2a0_0+1+zpx)
+                sta <(sqc_a2a0_2+1+zpx)
+                sta <(sqc_a3a0_0+1+zpx)
+                sta <(sqc_a3a0_2+1+zpx)
+                eor #$ff
+                sta <(sqc_a2a0_1+1+zpx)
+                sta <(sqc_a2a0_3+1+zpx)
+                sta <(sqc_a3a0_1+1+zpx)
+                sta <(sqc_a3a0_3+1+zpx)
+                lda real+1
+                sta <(sqc_a2a1_0+1+zpx)
+                sta <(sqc_a2a1_2+1+zpx)
+                sta <(sqc_a3a1_0+1+zpx)
+                sta <(sqc_a3a1_2+1+zpx)
+                eor #$ff
+                sta <(sqc_a2a1_1+1+zpx)
+                sta <(sqc_a2a1_3+1+zpx)
+                sta <(sqc_a3a1_1+1+zpx)
+                sta <(sqc_a3a1_3+1+zpx)
+                lda real+2
+                sta <(sqc_a3a2_0+1+zpx)
+                sta <(sqc_a3a2_2+1+zpx)
+                eor #$ff
+                sta <(sqc_a3a2_1+1+zpx)
+                sta <(sqc_a3a2_3+1+zpx)
+                ; 4*3 + 20*4 -> 12 + 80 -> 92 cycles
+                
+                sec
+                
+                ; 2+ 8*11 + 2*10 -> 108 +4 -> + 92 -> 206 cycles 
+                ldx real+3
+                ldy real+2
+                jsr zpcaddr + fsqz_part-zpcode
+                ;;;;;;;;;;
+                sta c32_0           ; 60 cycles
+                lda c32_1
+                adc #0
+                sta c32_1           ; 68 cycles
+                lda c32_2
+                adc #0
+                sta c32_2           ; 76 cycles
+                
+                asl c32_m2          ; 81 cycles
+                txa
+                rol
+                tax                 ; 87 cycles
+                rol c32_0
+                rol c32_1
+                rol c32_2           ; 102 cycles
+                lda #0
+                adc #0
+                sta c32_3           ; 109 cycles
+                
+                ; 206 + 109 -> 315 cycles
+                
+                ; add squares
+                ldy real+1
+                lda c32_m2
+                adc sq2tbl_lo,y     ; 13 cycles
+                txa
+                adc sq2tbl_hi,y
+                sta tmpr            ; 22 cycles
+                
+                ldx real+2
+                lda c32_0
+                adc sq2tbl_lo,x
+                sta tmpr+1           ; 35 cycles
+                lda c32_1
+                adc sq2tbl_hi,x
+                sta tmpr+2           ; 45 cycles
+                
+                ldx real+3
+                lda c32_2
+                adc sq2tbl_lo,x
+                sta tmpr+3           ; 58 cycles
+                lda #0
+                adc sq2tbl_hi,x
+                sta tmpr+4           ; 67 cycles
+                ; 67 + 315 cycles -> 382 cycles
+                
+                ; without shifting
+                ; 382+402 cycles
+                
+                ;;;; second for imag
+                
+                ; input imag
+                ; output tmpi = real**2
+fastsqr4x4_i:
+                lda imag
+                sta <(sqc_a2a0_0+1+zpx)
+                sta <(sqc_a2a0_2+1+zpx)
+                sta <(sqc_a3a0_0+1+zpx)
+                sta <(sqc_a3a0_2+1+zpx)
+                eor #$ff
+                sta <(sqc_a2a0_1+1+zpx)
+                sta <(sqc_a2a0_3+1+zpx)
+                sta <(sqc_a3a0_1+1+zpx)
+                sta <(sqc_a3a0_3+1+zpx)
+                lda imag+1
+                sta <(sqc_a2a1_0+1+zpx)
+                sta <(sqc_a2a1_2+1+zpx)
+                sta <(sqc_a3a1_0+1+zpx)
+                sta <(sqc_a3a1_2+1+zpx)
+                eor #$ff
+                sta <(sqc_a2a1_1+1+zpx)
+                sta <(sqc_a2a1_3+1+zpx)
+                sta <(sqc_a3a1_1+1+zpx)
+                sta <(sqc_a3a1_3+1+zpx)
+                lda imag+2
+                sta <(sqc_a3a2_0+1+zpx)
+                sta <(sqc_a3a2_2+1+zpx)
+                eor #$ff
+                sta <(sqc_a3a2_1+1+zpx)
+                sta <(sqc_a3a2_3+1+zpx)
+                ; 4*3 + 20*4 -> 12 + 80 -> 92 cycles
+                
+                sec
+                
+                ; 2+ 8*11 + 2*10 -> 108 +4 -> + 92 -> 206 cycles 
+                ldx imag+3
+                ldy imag+2
+                jsr zpcaddr + fsqz_part-zpcode
+                ;;;;;;;;;;
+                sta c32_0           ; 60 cycles
+                lda c32_1
+                adc #0
+                sta c32_1           ; 68 cycles
+                lda c32_2
+                adc #0
+                sta c32_2           ; 76 cycles
+                
+                asl c32_m2          ; 81 cycles
+                txa
+                rol
+                tax                 ; 87 cycles
+                rol c32_0
+                rol c32_1
+                rol c32_2           ; 102 cycles
+                lda #0
+                adc #0
+                sta c32_3           ; 109 cycles
+                
+                ; 206 + 109 -> 315 cycles
+                
+                ; add squares
+                ldy imag+1
+                lda c32_m2
+                adc sq2tbl_lo,y     ; 13 cycles
+                txa
+                adc sq2tbl_hi,y
+                sta tmpi          ; 22 cycles
+                
+                ldx imag+2
+                lda c32_0
+                adc sq2tbl_lo,x
+                sta tmpi+1          ; 35 cycles
+                lda c32_1
+                adc sq2tbl_hi,x
+                sta tmpi+2          ; 45 cycles
+                
+                ldx imag+3
+                lda c32_2
+                adc sq2tbl_lo,x
+                sta tmpi+3           ; 58 cycles
+                lda #0
+                adc sq2tbl_hi,x
+                sta tmpi+4
+                ; 67 + 315 cycles -> 382 cycles
+                
+                ; without shifting
+                ; 382+402 cycles
+                
+                ;; make sums and compare with 4.0
+                lda tmpr
+                adc tmpi
+                lda tmpr+1
+                adc tmpi+1
+                lda tmpr+2
+                adc tmpi+2
+                lda tmpr+3
+                adc tmpi+3
+                lda tmpr+4
+                adc tmpi+4
+                eor #$80
+                cmp #$84 ; 4.0
+                bcc mandelitercont
+                jmp mandeliterend
+mandelitercont:
+                inc iter
+                bne mandelitercont2
+                jmp mandeliterend
+mandelitercont2:
+                
+                ; subtract (r**2-i**2) and store to real
+                ; also fastshift
+                lda tmpr
+                sec
+                sbc tmpi
+                tay
+                lda tmpr+1
+                sbc tmpi+1
+                tax
+                lda asltbl2,y
+                ora asltbl1,x
+                sta tmpr+0
+                lda tmpr+2
+                sbc tmpi+2
+                tay
+                lda asltbl2,x
+                ora asltbl1,y
+                sta tmpr+1
+                lda tmpr+3
+                sbc tmpi+3
+                tax
+                lda asltbl2,y
+                ora asltbl1,x
+                sta tmpr+2
+                lda tmpr+4
+                sbc tmpi+4
+                tay
+                lda asltbl2,x
+                ora asltbl1,y
+                sta tmpr+3
+                
+                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                ;; 2*real*imag
+                
+                ; input real,imag
+                ; output imag = real*imag*2
+fastmul4x4:
+                lda imag+0
+                sta <(fmc_a2b0_0+1+zpx)
+                sta <(fmc_a2b0_2+1+zpx)
+                sta fmc_a3b0_0+1
+                sta fmc_a3b0_2+1
+                eor #$ff
+                sta <(fmc_a2b0_1+1+zpx)
+                sta <(fmc_a2b0_3+1+zpx)
+                sta fmc_a3b0_1+1
+                sta fmc_a3b0_3+1
+                lda imag+1
+                sta <(fmc_a1b1_0+1+zpx)
+                sta <(fmc_a1b1_2+1+zpx)
+                sta <(fmc_a2b1_0+1+zpx)
+                sta <(fmc_a2b1_2+1+zpx)
+                sta fmc_a3b1_0+1
+                sta fmc_a3b1_2+1
+                eor #$ff
+                sta <(fmc_a1b1_1+1+zpx)
+                sta <(fmc_a1b1_3+1+zpx)
+                sta <(fmc_a2b1_1+1+zpx)
+                sta <(fmc_a2b1_3+1+zpx)
+                sta fmc_a3b1_1+1
+                sta fmc_a3b1_3+1
+                lda imag+2
+                sta fmc_a0b2_0+1
+                sta fmc_a0b2_2+1
+                sta <(fmc_a1b2_0+1+zpx)
+                sta <(fmc_a1b2_2+1+zpx)
+                sta <(fmc_a2b2_0+1+zpx)
+                sta <(fmc_a2b2_2+1+zpx)
+                sta fmc_a3b2_0+1
+                sta fmc_a3b2_2+1
+                eor #$ff
+                sta fmc_a0b2_1+1
+                sta fmc_a0b2_3+1
+                sta <(fmc_a1b2_1+1+zpx)
+                sta <(fmc_a1b2_3+1+zpx)
+                sta <(fmc_a2b2_1+1+zpx)
+                sta <(fmc_a2b2_3+1+zpx)
+                sta fmc_a3b2_1+1
+                sta fmc_a3b2_3+1
+                lda imag+3
+                sta fmc_a0b3_0+1
+                sta fmc_a0b3_2+1
+                sta <(fmc_a1b3_0+1+zpx)
+                sta <(fmc_a1b3_2+1+zpx)
+                sta fmc_a2b3_0+1
+                sta fmc_a2b3_2+1
+                sta fmc_a3b3_0+1
+                sta fmc_a3b3_2+1
+                eor #$ff
+                sta fmc_a0b3_1+1
+                sta fmc_a0b3_3+1
+                sta <(fmc_a1b3_1+1+zpx)
+                sta <(fmc_a1b3_3+1+zpx)
+                sta fmc_a2b3_1+1
+                sta fmc_a2b3_3+1
+                sta fmc_a3b3_1+1
+                sta fmc_a3b3_3+1
+                ; 52*4 + 3*4 + 2*4 -> 208 + 12 + 8 -> 228 cycles
+
+                sec
+                fmt_a1b1_lo = <(sqc_a3a0_0+1+zpx)
+                fmt_a1b1_hi = <(sqc_a3a0_1+1+zpx)
+                fmt_a1b2_lo = <(sqc_a3a0_2+1+zpx)
+                fmt_a1b2_hi = <(sqc_a3a0_3+1+zpx)
+                fmt_a1b3_lo = <(sqc_a3a1_0+1+zpx)
+                fmt_a1b3_hi = <(sqc_a3a1_1+1+zpx)
+                fmt_a2b0_lo = <(sqc_a3a1_2+1+zpx)
+                fmt_a2b0_hi = <(sqc_a3a1_3+1+zpx)
+                fmt_a2b1_lo = <(sqc_a3a2_0+1+zpx)
+                fmt_a2b1_hi = <(sqc_a3a2_1+1+zpx)
+                fmt_a2b2_lo = <(sqc_a3a2_2+1+zpx)
+                fmt_a2b2_hi = <(sqc_a3a2_3+1+zpx)
+                
+                ldx real+1
+                ldy real+2
+                jmp zpcaddr + fmz_part-zpcode
+fm_back:
+                sta fmt_a2b2_hi
+                ;;;;;;;;;;
+                ;;;;;;
+                
+                ; a2*b3.lo; pos 3
+fmc_a2b3_0:     lda fmtbl1_lo,y
+fmc_a2b3_1:     sbc fmtbl2_lo,y
+                sta fmt_a2b3_lo+1
+                
+                ; a2*b3.hi; pos 4
+fmc_a2b3_2:     lda fmtbl1_hi,y
+fmc_a2b3_3:     sbc fmtbl2_hi,y
+                sta fmt_a2b3_hi+1
+                
+                ;;;;;;;;;;;;;;;;;;;;;
+                ldy real+3
+                ; a3*b0.lo; pos 1
+fmc_a3b0_0:     lda fmtbl1_lo,y
+fmc_a3b0_1:     sbc fmtbl2_lo,y
+                sta fmt_a3b0_lo+1
+                
+                ; a3*b0.hi; pos 2
+fmc_a3b0_2:     lda fmtbl1_hi,y
+fmc_a3b0_3:     sbc fmtbl2_hi,y
+                sta fmt_a3b0_hi+1
+                
+                ; a3*b1.lo; pos 2
+fmc_a3b1_0:     lda fmtbl1_lo,y
+fmc_a3b1_1:     sbc fmtbl2_lo,y
+                sta fmt_a3b1_lo+1
+                
+                ; a3*b1.hi; pos 3
+fmc_a3b1_2:     lda fmtbl1_hi,y
+fmc_a3b1_3:     sbc fmtbl2_hi,y
+                sta fmt_a3b1_hi+1
+                
+                ; a3*b2.lo; pos 3
+fmc_a3b2_0:     lda fmtbl1_lo,y
+fmc_a3b2_1:     sbc fmtbl2_lo,y
+                sta fmt_a3b2_lo+1
+                
+                ; a3*b2.hi; pos 4
+fmc_a3b2_2:     lda fmtbl1_hi,y
+fmc_a3b2_3:     sbc fmtbl2_hi,y
+                sta fmt_a3b2_hi+1
+                
+                ; a3*b3.lo; pos 4
+fmc_a3b3_0:     lda fmtbl1_lo,y
+fmc_a3b3_1:     sbc fmtbl2_lo,y
+                sta fmt_a3b3_lo+1
+                
+                ; a3*b3.hi; pos 5
+fmc_a3b3_2:     lda fmtbl1_hi,y
+fmc_a3b3_3:     sbc fmtbl2_hi,y
+                sta fmt_a3b3_hi+1
+                
+                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                
+                ldy real+0
+                
+                ; a0*b3.lo; pos 1
+fmc_a0b3_0:     lda fmtbl1_lo,y
+fmc_a0b3_1:     sbc fmtbl2_lo,y
+                sta fmt_a0b3_lo+1
+                
+                ; a0*b3.hi; pos 2
+fmc_a0b3_2:     lda fmtbl1_hi,y
+fmc_a0b3_3:     sbc fmtbl2_hi,y
+                sta fmt_a0b3_hi+1
+                
+                ; a0*b2.lo; pos 0
+fmc_a0b2_0:     lda fmtbl1_lo,y
+fmc_a0b2_1:     sbc fmtbl2_lo,y
+                tax
+                
+                ; a0*b2.hi; pos 1
+fmc_a0b2_2:     lda fmtbl1_hi,y
+fmc_a0b2_3:     sbc fmtbl2_hi,y
+                tay
+                ; 24*11 -> 266 + 8 + 10 -> 284 + 228 -> 412 cycles
+                
+                txa
+                clc
+                adc fmt_a1b1_lo
+                tax                 ; 7 cycles
+                tya
+                adc fmt_a1b2_lo
+                tay                 ; 14 cycles
+                lda fmt_a1b2_hi
+                adc #0
+                sta c32_0           ; 22 cycles
+                
+                tya
+                adc fmt_a1b1_hi
+                tay                 ; 29 cycles
+                lda c32_0
+                adc fmt_a2b2_lo
+                sta c32_0           ; 38 cycles
+                lda #0
+                adc #0
+                sta c32_1           ; 45 cycles
+                
+                txa
+                adc fmt_a2b0_lo     ; 50 cycles
+                tya
+                adc fmt_a2b1_lo
+                tay                 ; 57 cycles
+                lda c32_0
+                adc fmt_a2b1_hi
+                tax                 ; 65 cycles
+                lda c32_1
+                adc fmt_a2b2_hi
+                sta c32_1           ; 74 cycles
+                         
+                tya
+fmt_a3b0_lo:    adc #0
+                tay                 ; 81 cycles
+                txa
+fmt_a3b0_hi:    adc #0
+                tax                 ; 88 cycles
+                lda c32_1
+fmt_a3b2_lo:    adc #0
+                sta c32_1           ; 97 cycles
+                lda #0
+                adc #0
+                sta c32_2           ; 104 cycles
+                
+                tya
+                adc fmt_a2b0_hi
+                tay                 ; 111 cycles
+                txa
+fmt_a0b3_hi:    adc #0
+                tax                 ; 118 cycles
+                lda c32_1
+fmt_a2b3_lo:    adc #0
+                sta c32_1           ; 127 cycles
+                lda c32_2
+fmt_a2b3_hi:    adc #0
+                sta c32_2           ; 136 cycles
+                lda #0
+                adc #0
+                sta c32_3           ; 143 cycles
+                         
+                tya
+fmt_a0b3_lo:    adc #0
+                tay                 ; 150 cycles
+                txa
+                adc fmt_a1b3_lo
+                tax                 ; 157 cycles
+                lda c32_1
+                adc fmt_a1b3_hi
+                sta c32_1           ; 166 cycles
+                lda c32_2
+fmt_a3b3_lo:    adc #0
+                sta c32_2           ; 175 cycles
+                lda c32_3
+                adc #0
+                sta c32_3           ; 183 cycles
+                         
+                tya
+                adc #$08
+                tay                 ; 190 cycles
+                txa
+fmt_a3b1_lo:    adc #0
+                sta c32_0           ; 198 cycles
+                lda c32_1
+fmt_a3b1_hi:    adc #0
+                sta c32_1           ; 207 cycles
+                lda c32_2
+fmt_a3b2_hi:    adc #0
+                sta c32_2           ; 216 cycles
+                lda c32_3
+fmt_a3b3_hi:    adc #0
+                tax                 ; 224 cycles
+                ; 226 + 412 -> 638+52 cycles
+                
+                ; with multiplying by two
+                ; shifting
+                ;ldy c32_m1
+                lda asltbl3,y
+                sta c32_m1
+                lda asltbl4,y
+                ldy c32_0
+                ora asltbl3,y
+                sta imag
+                lda asltbl4,y
+                ldy c32_1
+                ora asltbl3,y
+                sta imag+1
+                lda asltbl4,y
+                ldy c32_2
+                ora asltbl3,y
+                sta imag+2
+                lda asltbl4,y
+                ora asltbl3,x
+                sta imag+3         ; 8*7 -> 56+7 -> 63 + 6-3-> 66
+                ; 638 + 52 cycles -> 704 - 752 cycles
+                
+                ;; tmpr+creal
+                lda tmpr
+                clc
+                adc creal
+                sta real
+                lda tmpr+1
+                adc creal+1
+                sta real+1
+                lda tmpr+2
+                adc creal+2
+                sta real+2
+                lda tmpr+3
+                adc creal+3
+                sta real+3
+                
+                ;; apply sign
+                ldy sign
+                bmi @negative
+                lda imag
+                clc
+                adc cimag
+                sta imag
+                lda imag+1
+                adc cimag+1
+                sta imag+1
+                lda imag+2
+                adc cimag+2
+                sta imag+2
+                lda imag+3
+                adc cimag+3
+                sta imag+3
+                
+                jmp  mandelloop
+                
+                ; jump optimization (if imag is negative)
+@negative:      lda cimag
+                sec
+                sbc imag
+                sta imag
+                lda cimag+1
+                sbc imag+1
+                sta imag+1
+                lda cimag+2
+                sbc imag+2
+                sta imag+2
+                lda cimag+3
+                sbc imag+3
+                sta imag+3
+                
+                jmp mandelloop
+mandeliterend:
+                lda iter
+                sec
+                sbc iterlimit+1   ; get iter count
+                and #$03
+                ;lda #$03
+                clc
+                adc pixelvalidx
+                tax
+                ldy #0
+                ; put pixel
+                lda (pixeladdr),y
+                ora pixelvaltable,x
+                sta (pixeladdr),y
+                
+                ldx stoprender
+                bpl @nostop
+                jmp mandelend
+@nostop:
+                inc xcount
+                bne donextx
+                inc xcount+1
+                bne donextx
+                jmp donexty ; end of line
+donextx:
+                lda pixeladdr+1
+                eor #$c0        ;; change bank (interlace) and bitmap
+                sta pixeladdr+1
+                bmi nopixelchange
+                lda pixelvalidx
+                clc
+                adc #$04
+                and #$0f
+                sta pixelvalidx
+                bne nopixelchange
+                ; clc
+                lda pixeladdr
+                adc #8
+                sta pixeladdr
+                bcc @nocarry
+                inc pixeladdr+1
+@nocarry:
+nopixelchange:
+                
+                ;;;;;;;;;;;;;
+                ;; xpos
+                ;;;;;;;;;;;;;;;;;;;;;;;
+                lda xpos
+                clc
+                adc pixdiff
+                sta xpos
+                lda xpos+1
+                adc pixdiff+1
+                sta xpos+1
+                lda xpos+2
+                adc pixdiff+2
+                sta xpos+2
+                sta real
+                sta creal
+                lda xpos+3
+                adc pixdiff+3
+                sta xpos+3
+                sta real+1
+                sta creal+1
+                lda xpos+4
+                adc pixdiff+4
+                sta xpos+4
+                sta real+2
+                sta creal+2
+                lda xpos+5
+                adc #0
+                sta xpos+5
+                sta real+3
+                sta creal+3
+                
+                lda ypos+2
+                sta imag
+                sta cimag
+                lda ypos+3
+                sta imag+1
+                sta cimag+1
+                lda ypos+4
+                sta imag+2
+                sta cimag+2
+                lda ypos+5
+                sta imag+3
+                sta cimag+3
+                jmp pixelloop
+donexty:
+                inc ycount
+                bne donexty2
+                jmp mandelend
+donexty2:
+                lda ycount
+                and #07
+                beq @rowchar
+                lda pixeladdr
+                sec
+                sbc #<(312-1)
+                sta pixeladdr
+                lda pixeladdr+1
+                sbc #>(312-1)
+                sta pixeladdr+1
+                jmp @next
+@rowchar:
+                inc pixeladdr
+                bne @nocarry2
+                inc pixeladdr+1
+@nocarry2:
+@next:
+                lda #<(-320)
+                sta xcount
+                lda #>(-320)
+                sta xcount+1
+                
+                lda pixeladdr+1
+                eor #$c0
+                sta pixeladdr+1
+                lda #0
+                sta pixelvalidx
+                
+                lda ypos
+                clc
+                adc pixdiff
+                sta ypos
+                lda ypos+1
+                adc pixdiff+1
+                sta ypos+1
+                lda ypos+2
+                adc pixdiff+2
+                sta ypos+2
+                sta imag
+                sta cimag
+                lda ypos+3
+                adc pixdiff+3
+                sta ypos+3
+                sta imag+1
+                sta cimag+1
+                lda ypos+4
+                adc pixdiff+4
+                sta ypos+4
+                sta imag+2
+                sta cimag+2
+                lda ypos+5
+                adc #0
+                sta ypos+5
+                sta imag+3
+                sta cimag+3
+                
+                lda #0
+                sta xpos
+                lda #$80
+                sta xpos+1
+                lda xposstart
+                sta xpos+2
+                sta real
+                sta creal
+                lda xposstart+1
+                sta xpos+3
+                sta real+1
+                sta creal+1
+                lda xposstart+2
+                sta xpos+4
+                sta real+2
+                sta creal+2
+                lda xposstart+3
+                sta xpos+5
+                sta real+3
+                sta creal+3
+                
+                jmp pixelloop
+mandelend:
+                ldy #1
+                sty keyrepdelay
+                dey
+                sty dorestart
+                sty printonborder
+                sty reqprintreg
+                ldx #$04
+@loopz:         sty regselect,x
+                dex
+                bpl @loopz
+                inc regysize
+                dey
+                sty oldkeyfunc
+                
+                ldy stoprender
+                lda #$40            ; do not check and clear
+                sta stoprender
+                
+                lda #<finishtext
+                ldx #>finishtext
+                cpy #$00     ; old stoprender
+                bpl @notstopped
+                lda #<stoppedtext
+                ldx #>stoppedtext
+@notstopped:    sta @loop+1
+                stx @loop+2
+                
+                ldx #15
+                lda #$20
+@loop0:         sta bordertext+24+8,x
+                dex
+                bpl @loop0
+                ldx #7
+@loop:          lda $ffff,x
+                sta bordertext+24,x
+                dex
+                bpl @loop
+                ldy #24
+                ldx #48
+                jsr borderprint
+                
+                lda #$00        ; stop timers
+                sta $dc0e
+                sta $dc0f
+                
+waitloop:       ldx printonborder
+                beq @skipprintborder
+                ldy #0
+                sty printonborder
+                cpx #3
+                beq @dodispreginfo
+                dex
+                beq @twolines
+                ldy #24     ; second line
+@twolines:      ldx #48
+                jsr borderprint
+                jmp @skipprintborder
+                
+@dodispreginfo:
+                ldx #0
+                stx regypos1
+                stx regxpos1
+                stx regxpos1+1
+                inx
+                stx regxpos2+1
+                ldx #63
+                stx regxpos2
+                ldx #199
+                stx regypos2
+                
+                jsr calczoomin
+                
+                ldx #$58
+                stx bordertext
+                inx
+                stx bordertext+24
+                lda #','
+                sta bordertext+12
+                sta bordertext+36
+                
+                ldx #<1
+                ldy #<newxposstart
+                jsr printfixval
+                
+                ldx #<13
+                ldy #<newxposend
+                jsr printfixval
+                
+                ldx #<25
+                ldy #<newyposstart
+                jsr printfixval
+                
+                ldx #<37
+                ldy #<newyposend
+                jsr printfixval
+                
+                ldy #0
+                ldx #48
+                jsr borderprint
+                
+@skipprintborder:
+                lda reqprintreg
+                beq skipprintreg
+                
+                lda #32
+                ldx #47
+@bsloop:        sta bordertext,x
+                dex
+                bpl @bsloop
+                
+                ldx #$58
+                stx bordertext
+                inx
+                stx bordertext+24
+                lda #':'
+                sta bordertext+1
+                sta bordertext+25
+                
+                ldx #9
+@textloop:      lda region1text,x
+                sta bordertext+14,x
+                dex
+                bpl @textloop
+                
+                lda #$00
+                sta reqprintreg
+                lda regselect
+                cmp #1
+                bne @noregpos1
+                
+                jsr initregposcalc
+                jsr regpos1calc
+                
+                ldx #<2
+                ldy #<newxposstart
+                jsr printfixval
+                
+                ldx #<26
+                ldy #<newyposstart
+                bne @printregpos
+@noregpos1:
+                jsr calczoomin
+                inc bordertext+23
+                ldx #<2
+                ldy #<newxposend
+                jsr printfixval
+                
+                ldx #<26
+                ldy #<newyposend
+@printregpos:
+                jsr printfixval
+                ldy #0
+                ldx #48
+                jsr borderprint
+skipprintreg:
+                lda dorestart
+                bne endwaitloop
+                jmp waitloop
+endwaitloop:
+                
+                cmp #2      ; set zoomin
+                bne @nosetzoomin
+                jsr zoomin
+@nosetzoomin:
+                lda #$00
+                sta dorestart
+                sta stoprender
+                jsr initbitmap
+                jmp mandelstart
+                ;;;;;;;;;;;;;;
+                ;
+                ;;;;;;;;;;;;;;;;;;;;;;
+inithomepos:
+                ldx #$ee
+@loop:          lda initxposstart-$ee,x
+                sta xposstart-$ee,x
+                inx
+                bne @loop
+                stx historypos
+                rts
+
+
+pushtohist:
+                ldx historypos
+                inx
+                beq @end
+                dex
+                ldy #$11
+                lda #>poshistorytbl+$11
+                sta @addr+2
+@loop:          lda xposstart,y
+@addr:          sta poshistorytbl,x
+                dec @addr+2
+                dey
+                bpl @loop
+                inc historypos
+@end:           rts
+
+popfromhist:
+                dec historypos
+                ldx historypos
+                ldy #$11
+                lda #>poshistorytbl+$11
+                sta @loop+2
+@loop:          lda poshistorytbl,x
+                sta xposstart,y
+                dec @loop+2
+                dey
+                bpl @loop
+                rts
+
+initbitmap:
+                lda #$00
+                ldy #$60
+                ldx #$80
+                jsr fillmem
+                ldy #$a0
+                ldx #$c0
+                
+fillmem:        sty $03         ; start page, x - end page+1
+                ldy #$00
+                sty $02
+@loop:          sta ($02),y
+                iny
+                bne @loop
+                inc $03
+                cpx $03
+                bne @loop
+                rts
+
+
+printfixval:
+                stx @bordertextch+1
+                ldx #$fc
+@cploop0:       lda $200,y
+                sta printinput+4,x
+                iny
+                inx
+                bne @cploop0
+                
+                jsr printfixed
+                
+                ldx #256-11
+@bordertextch:  ldy #00
+@cploop1:       lda printedfixed-256+11,x
+                sta bordertext,y
+                iny
+                inx
+                bne @cploop1
+                rts
+
+                ;;;;;;;;;;;;;;;;;;;;;;;;;;
+                ; zoom in
+
+; zoom in
+zoomin:
+                jsr calczoomin
+                ldx #$ee
+@loop:          lda newxposstart-$ee,x
+                sta xposstart-$ee,x
+                inx
+                bne @loop
+                rts
+
+calczoomin:         
+                ; initregposcalc
+                jsr initregposcalc
+                jsr regpos1calc
+                
+                ; regypos2
+                ldx #$fc
+@copyloop1:     lda tmpval+4,x
+                sta stdmula+4,x
+                inx
+                bne @copyloop1
+                
+                lda regypos2
+                jsr multiplyby8
+                ldx #1
+                lda #199
+                jsr divideby8r
+                
+                ldx #$fc
+                clc
+@addloop1:      lda divquot+5,x
+                adc yposstart-$fc,x
+                sta newyposend-$fc,x
+                inx
+                bne @addloop1
+                
+                ; pixdiff
+                ldx #$fc
+                sec
+@addloop4:      lda newyposend-$fc,x
+                sbc newyposstart-$fc,x
+                sta divquot+7,x
+                inx
+                bne @addloop4
+                stx divquot+1
+                stx divquot+2
+                
+                ldx #0
+                lda #199
+                jsr divideby8r
+                
+                ldx #$fa
+@copyloop4:     lda divquot+6,x
+                sta newpixdiff-$fa,x
+                inx
+                bne @copyloop4
+                
+                ; calculate regxpos2
+                ldx #$fb
+@copyloop5:     lda newpixdiff-$fb,x
+                sta stdmula+5,x
+                inx
+                bne @copyloop5
+                lda #63
+                jsr multiplyby8_5
+                
+                ldx #$fb
+                clc
+@addloop5:      lda newpixdiff-$fb,x
+                adc stdmulc+6,x
+                sta newpixdiff319-$fb,x
+                inx
+                bne @addloop5
+                
+                asl newpixdiff319   ; for rounding
+                ldx #$fc
+@addloop6:      lda newxposstart-$fc,x
+                adc newpixdiff319-$fc+1,x
+                sta newpixdiff319-$fc+1,x
+                inx
+                bne @addloop6
+                rts
+                
+initregposcalc:
+                ldx #$fc
+                sec
+@subloop:       lda yposend-$fc,x
+                sbc yposstart-$fc,x
+                sta stdmula+4,x
+                sta tmpval+4,x
+                inx
+                bne @subloop
+                rts
+                
+regpos1calc:
+                ; regypos1
+                lda regypos1
+                jsr multiplyby8
+                ldx #1
+                lda #199
+                jsr divideby8r
+                
+                ldx #$fc
+                clc
+@addloop:       lda divquot+5,x
+                adc yposstart-$fc,x
+                sta newyposstart-$fc,x
+                inx
+                bne @addloop
+                
+                ;regxpos1
+                ldx #$fc
+@copyloop2:     lda tmpval+4,x
+                sta stdmula+4,x
+                inx
+                bne @copyloop2
+                
+                lda regxpos1
+                jsr multiplyby8
+                lda regxpos1+1
+                beq @nolastbit
+                ldx #$fc
+                clc
+@addloop2:      lda stdmulc+5,x
+                adc tmpval+4,x
+                sta stdmulc+5,x
+                inx
+                bne @addloop2
+@nolastbit:
+                ldx #1
+                lda #199
+                jsr divideby8r
+                
+                ldx #$fc
+                clc
+@addloop3:      lda divquot+5,x
+                adc xposstart-$fc,x
+                sta newxposstart-$fc,x
+                inx
+                bne @addloop3
+                rts
+                
+divideby8r:
+                sta divtmp
+                ldy #00
+                sty divquot+0,x
+                sty divquot+7
+                
+                ldy #33
+                txa
+                bne @noother
+                ldy #41
+@noother:       stx divmode
+
+@divloop0:      lda divquot+6
+                sec
+                sbc divtmp
+                tax
+                sta divtmp+1
+                lda divquot+7
+                sbc #0
+                bcc @smaller
+                sta divquot+7
+                stx divquot+6
+@smaller:       php
+                ldx #$f8
+                lda divmode
+                beq @noother1
+                inx
+@noother1:      
+@rolloop:       rol divquot+8,x
+                inx
+                bne @rolloop
+                
+                plp
+                dey
+                bne @divloop0
+                lda divtmp+1
+                bcs @nofix
+                adc divtmp
+@nofix:         
+                sta divtmp+1
+                lda divtmp
+                lsr a
+                sbc divtmp+1
+                bcs @noround
+                ldx #$fb
+                ldy divmode
+                bne @noother2
+                dex
+@noother2:
+                sec
+@loop2:         lda divquot+6,x
+                adc #0
+                sta divquot+6,x
+                inx
+                bne @loop2
+@noround:       rts
+
+multiplyby8:
+                ldx #$0
+                stx stdmula+4
+multiplyby8_5:
+                ldx #$0
+                ldy #$f9
+@loop0:         stx stdmulc+6,y
+                iny
+                bne @loop0
+                ldy #8
+@loop:          lsr
+                pha
+                bcc @noadd
+                clc
+                ldx #$fa
+@innerloop:     lda stdmulc+6,x
+                adc stdmula+6,x
+                sta stdmulc+6,x
+                inx
+                bne @innerloop
+@noadd:         ldx #$fa
+@rolloop:       rol stdmula+6,x
+                inx
+                bne @rolloop
+                pla
+                dey
+                bne @loop
+                rts
+
+                ; printinput - input 32-bit fixed value
+printfixed:
+                lda printmulb+3
+                bpl @positive
+                ldx #$fc
+                sec
+@negloop:       lda #0
+                sbc printmulb+4,x
+                sta printmulb+4,x
+                inx
+                bne @negloop
+                lda #'-'
+                sta printedfixed
+                bne @aftersign
+@positive:
+                lda #'+'
+                sta printedfixed
+@aftersign:
+                lda #'.'
+                sta printedfixed+2
+                
+                ;jsr multiplyby24r
+                ;;;;;;;;;;;
+multiplyby10_8:
+                lda #$10
+                sta printmula
+                ldx #$5e
+                stx printmula+1
+                inx
+                stx printmula+2
+                
+                lda #0
+                ldx #$f9
+@loop0:         sta printmulc+7,x
+                inx
+                bne @loop0
+                sta printmulb+4
+                sta printmulb+5
+                sta printmulb+6
+                
+                ldy #24
+@loop:          ror printmula+2
+                ror printmula+1
+                ror printmula
+                bcc @noadd
+                ldx #$f9
+                clc
+@addloop:       lda printmulb+7,x
+                adc printmulc+7,x
+                sta printmulc+7,x
+                inx
+                bne @addloop
+@noadd:         ldx #$f9
+@rolloop2:      rol printmulb+7,x
+                inx
+                bne @rolloop2
+                dey
+                bne @loop
+                lda printmulc+2
+                bpl @noround
+                sec
+                ldx #$fc
+@loop1:         lda printmulc+3+4,x
+                adc #0
+                sta printmulc+3+4,x
+                inx
+                bne @loop1
+@noround:       
+                ;;;;;;;;;;;;;
+                ldy #0
+printfixedmain:
+@loop:          lda #$2f
+                sta printtmp+4
+                
+                tya
+                asl a
+                asl a
+                adc #<(digitvalstbl-$fc)
+                sta @sub+1
+                lda #>(digitvalstbl-$fc)
+                adc #0
+                sta @sub+2  ; printtmp addr of dwords
+                
+@subloop1:
+                ldx #$fc
+                sec
+@subloop:       lda printnum+4,x
+                sta printtmp+4,x
+@sub:           sbc $3234,x
+                sta printnum+4,x
+                inx
+                bne @subloop
+                
+                inc printtmp+4
+                bcs @subloop1
+                
+                ldx #$fc
+@copyloop:      lda printtmp+4,x
+                sta printnum+4,x
+                inx
+                bne @copyloop
+                
+                lda printtmp+4
+                sta printedfixed+1,y
+                
+                tya
+                bne @nodot
+                iny
+@nodot:         iny
+                cpy #10
+                bne @loop
+                rts
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Border texts routines
+; X - end, Y - start
+borderprint:
+                lda #$31
+                sta $01
+                
+                stx @endchar+1
+@loop:          lda bordertext,y
+                tax
+                asl a
+                asl a
+                asl a
+                sta @charbit+1
+                txa
+                lsr a
+                lsr a
+                lsr a
+                lsr a
+                lsr a
+                ora #$d8
+                sta @charbit+2
+                
+                sty bordertmp
+                ldx #00
+                cpy #24
+                bcc @nonewline
+                ldx #23
+                tya
+                sbc #24
+                tay
+@nonewline:     txa
+                adc btextaddr_lo,y
+                sta @sprites+1
+                lda btextaddr_hi,y
+                sta @sprites+2
+                
+                ldy #$00
+                ldx #$00
+@charbit:       lda $d800,x
+@sprites:       sta $4400,y
+                iny
+                iny
+                iny
+                inx
+                cpx #$08
+                bne @charbit
+                
+                ldy bordertmp
+                iny
+@endchar:       cpy #00
+                bne @loop
+@end:           lda #$35
+                sta $01
+                rts
+
+irqhandler:
+                pha
+                txa
+                pha
+                tya
+                pha
+                lda $01
+                pha
+                lda #$35
+                sta $01
+                lda #$ff
+                sta $d019
+                sta $d015
+                
+                lda #$b3
+                sta $d011       ; first part of opening borders
+                lda #$00
+                sta $d012
+                ; restore sprite setup for borders
+                lda #$34+200
+                sta $d001
+                sta $d003
+                lda #24
+                sta $d000
+                lda #48
+                sta $d002
+                lda #$00
+                sta $d010
+                lda #$10
+                sta $43f8
+                lda #$11
+                sta $43f9
+                lda #$f
+                sta $d027
+                sta $d028
+                
+                lda $dd00
+                and #$fc
+                ora #$02
+                sta $dd00
+                
+                lda #<irqhandler2
+                sta $fffe
+                lda #>irqhandler2
+                sta $ffff
+                
+                pla
+                sta $01
+                pla
+                tay
+                pla
+                tax
+                pla
+nmihandler:     rti
+
+irqhandler2:
+                pha
+                txa
+                pha
+                tya
+                pha
+                lda $01
+                pha
+                lda #$35
+                sta $01
+                lda #$ff
+                sta $d019
+                
+                lda #$3b
+                sta $d011       ; first part of opening borders
+                lda #18
+                sta $d012
+                
+                lda #<irqhandler3
+                sta $fffe
+                lda #>irqhandler3
+                sta $ffff
+                
+                pla
+                sta $01
+                pla
+                tay
+                pla
+                tax
+                pla
+                rti
+
+; number of normal keys (non-repeatable with function)
+numstdkeys = 7
+
+irqhandler3:
+                pha
+                txa
+                pha
+                tya
+                pha
+                lda $01
+                pha
+                lda #$35
+                sta $01
+                lda #$ff
+                sta $d019
+                
+                lda #$3b
+                sta $d011       ; first part of opening borders
+                lda #$fa
+                sta $d012
+                
+                lda $dd00
+                and #$fc
+                ora vicbank
+                eor #$03
+                sta $dd00
+                and #$03
+                sta vicbank
+                
+                lda $d016
+                eor #$01
+                sta $d016
+                
+                lda #<irqhandler
+                sta $fffe
+                lda #>irqhandler
+                sta $ffff
+                
+                ldx #$03
+                lda #00
+@loop:          sta $d000,x
+                dex
+                dex
+                bpl @loop
+                
+                bit stoprender
+                bvs skiprunstop
+                lda #$7f
+                sta $dc00
+                lda $dc01
+                eor #$80
+                and #$80
+                ora stoprender
+                sta stoprender
+printtime:
+                ldx timerdataidx
+                lda $dc06
+                cmp timerdata+2,x
+                bne @nomatch
+                ldy ignoretimerround
+                beq @doit
+                jmp noupdatetime
+@nomatch:       lda #$00
+                sta ignoretimerround    ; do not ignore timer round
+                jmp noupdatetime
+@doit:
+                lda #$01
+                sta ignoretimerround    ; now we ignore next this same value
+                
+                sec
+                ldx #5
+@tmloop:        lda timecount,x
+                adc #$00
+                php
+                bcc @nochange
+                adc #$f5
+@nochange:
+                sta timecount,x
+                sbc #$f6-$30-1
+                sta bordertext+17,x
+                plp
+                dex
+                bpl @tmloop
+                
+                ldx #24
+                ldy #18
+                jsr borderprint
+                jmp irq3end
+                
+skiprunstop:
+                ; handle keys after rending
+                ldx #numstdkeys+5; #10
+@keyloop:       lda keycoderows,x
+                sta $dc00
+                lda $dc01
+                and keycodecols,x
+                beq @keypressed
+                dex
+                bpl @keyloop
+                ; check joystick
+                lda $dc00
+                tay
+                ldx #numstdkeys+9 ; #14
+@joyloop:       tya
+                and joycodes-numstdkeys-1,x ; joycodes-6,x
+                beq @joypressed
+                dex
+                cpx #numstdkeys   ; #5
+                bne @joyloop
+                
+                beq keynopressed
+@joypressed:    cpx #numstdkeys+1 ; #6
+                bne @keypressed
+                ldx #numstdkeys-1 ; #4
+@keypressed:    cpx #numstdkeys+2 ; #$07
+                bcc @nomoves
+                lda #~2
+                sta $dc00
+                lda $dc01
+                and #$80    ; left shift
+                bne @nextshift
+                dex
+                jmp @nomoves
+@nextshift:     lda #~64
+                sta $dc00
+                lda $dc01
+                and #$10    ; right shift
+                bne @nomoves
+                dex
+@nomoves:
+                cpx #numstdkeys;  #5
+                bcs @repeatable
+                cpx oldkeyfunc
+                beq ignorekey
+                stx oldkeyfunc
+                jmp @handlekey
+                
+@repeatable:    dec keyrepdelay
+                bne ignorekey        ; key repeat
+                ldy #5
+                cpx #numstdkeys+2   ; #07
+                bcc @nofasterrep
+                ldy #2
+@nofasterrep:
+                sty keyrepdelay
+@handlekey:
+                lda keyaddrlotbl,x
+                sta @handlejump+1
+                lda keyaddrhitbl,x
+                sta @handlejump+2
+                txa
+                pha
+@handlejump:    jsr $0000
+                pla
+                cmp #4
+                beq @nozerodoquit
+                lda isdoquit
+                beq @nozerobordetext
+                lda #32
+                ldx #23
+@zbloop:        sta bordertext,x
+                dex
+                bpl @zbloop
+                lda #1
+                sta printonborder
+@nozerobordetext:
+                lda #0
+                sta isdoquit
+@nozerodoquit:
+                ;txa
+                ;ora #$30
+                ;sta $2c0
+                ;sta bordertext+24
+                ;ldx #25
+                ;ldy #24
+                ;jsr borderprint
+                jmp ignorekey
+keynopressed:
+                ldy #1
+                sty keyrepdelay
+                lda #$ff
+                sta oldkeyfunc
+ignorekey:
+                ;lda #$20
+                ;sta $2c0
+                ;sta bordertext+24
+                ;ldx #25
+                ;ldy #24
+                ;jsr borderprint
+                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                ; region select control
+                ldy regselect
+                bne @regdoit
+                jmp @noregselect
+@regdoit:
+                ldx #$18
+                stx $43f8
+                stx $83f8
+                inx
+                stx $43f9
+                stx $83f9
+                lda #$01
+                sta $d027       ; white color
+                sta $d028       ; white color
+                lda #$01
+                sta $d015
+                ; set cursor position
+                lda regxpos1
+                clc
+                adc #24
+                sta $d000
+                lda regxpos1+1
+                adc #0
+                and #$01
+                sta $d010
+                lda regypos1
+                cmp #194
+                bcc @nobottomfix
+                sbc #194-$1a
+                sta $43f8
+                sta $83f8
+                lda #193
+@nobottomfix:
+                clc
+                adc #50-13
+                sta $d001
+                
+                ; second regcursor
+                dey
+                beq @noregselect
+                lda #$03                ; y*1.6 -> 200*1.6 -> 320
+                sta $d015
+                
+                jsr calcregpos2
+                lda regxpos2
+                clc
+                adc #17
+                sta $d002
+                lda regxpos2+1
+                adc #0
+                asl
+                and #$02
+                ora $d010
+                sta $d010
+                lda regypos2
+                adc #50-20
+                sta $d003
+@noregselect:
+noupdatetime:
+irq3end:
+                pla
+                sta $01
+                pla
+                tay
+                pla
+                tax
+                pla
+                rti
+
+handlebackpos:
+                lda historypos
+                beq @end
+                jsr popfromhist
+                lda #$01
+                jmp handlestart2
+@end:           rts
+                
+handlekeyhome:
+                jsr inithomepos
+handlestart:
+                lda #$01
+handlestart2:   sta dorestart
+                rts
+handledispregion:
+                lda #$03        ; do display region info
+                sta printonborder
+                rts
+handleiterdec:
+                dec maxiter
+                jmp iterinfo
+handleiterinc:
+                inc maxiter
+                ldx #8
+                lda #$20
+@tloop0:        sta bordertext+36+3,x
+                dex
+                bpl @tloop0
+iterinfo:       ldx #11
+@tloop1:        lda iterstext,x
+                sta bordertext+24,x
+                dex
+                bpl @tloop1
+                ; print byte value (dec)
+                lda maxiter
+                pha
+                ldy #$fd
+@decloop:       pla
+                ldx #$ff
+@decloop0:      sec
+                inx
+                sbc decsubvals-$fd,y
+                bcs @decloop0
+                adc decsubvals-$fd,y
+                pha
+                txa
+                ora #$30
+                sta bordertext+24+12-$fd,y
+                iny
+                bne @decloop
+                pla
+                lda #$02
+                sta printonborder
+                rts
+handleregselect:
+                ldy regselect
+                cpy #02
+                beq @dorender
+                dey
+@doit:          inc regselect
+                lda #1
+                sta reqprintreg
+                rts
+@dorender:
+                jsr pushtohist
+                lda #$02
+                jmp handlestart2
+handlemovelu:
+                jsr handlemoveleft
+handlemoveup:
+                ldy regselect
+                beq @skip
+                dey
+                bne @secondcur
+                lda regypos1
+                beq @skip
+                dec regypos1
+                lda #1
+                sta reqprintreg
+@skip:          rts
+@secondcur:     ldy regysize
+                dey
+                beq @skip2
+                dec regysize
+                lda #1
+                sta reqprintreg
+@skip2:         rts
+
+handlemoverd:
+                jsr handlemoveright
+handlemovedown:
+                ldy regselect
+                beq @skip
+                dey
+                bne @secondcur
+                lda regypos1
+                cmp #198
+                beq @skip
+                inc regypos1
+                lda #1
+                sta reqprintreg
+@skip:          rts
+@secondcur:     jsr calcregpos2
+                lda regypos2
+                cmp #199
+                beq @skip2
+                lda regxpos2+1
+                beq @doit2
+                lda regxpos2
+                cmp #319-256
+                beq @skip2
+@doit2:         inc regysize
+                lda #1
+                sta reqprintreg
+@skip2:         rts
+handlemoveld:
+                jsr handlemovedown
+handlemoveleft:
+                ldy regselect
+                beq @skip
+                dey
+                bne @skip
+                lda regxpos1
+                ora regxpos1+1
+                beq @skip
+                lda regxpos1
+                bne @noborrow
+                dec regxpos1+1
+@noborrow:      dec regxpos1
+                lda #1
+                sta reqprintreg
+@skip:          rts
+handlemoveru:
+                jsr handlemoveup
+handlemoveright:
+                ldy regselect
+                beq @skip
+                dey
+                bne @skip
+                lda regxpos1+1
+                beq @doit
+                lda regxpos1
+                cmp #318-256
+                beq @skip
+@doit:          inc regxpos1
+                bne @nocarry
+                inc regxpos1+1
+@nocarry:       lda #1
+                sta reqprintreg
+@skip:          rts
+
+
+handlequit:
+                lda #1
+                sta isdoquit
+                ldx #23
+@loop:          lda quittext,x
+                sta bordertext,x
+                dex
+                bpl @loop
+                lda #1
+                sta printonborder
+                rts
+
+handleconfirmquit:
+                lda isdoquit
+                beq @noquit
+                sei
+                lda #$37
+                sta $01
+                jmp $fce2
+@noquit:        rts
+
+
+calcregpos2:
+                ldx regysize
+                lda fmtbl1_lo+154,x
+                sec
+                sbc fmtbl2_lo+<(~154),x
+                lda fmtbl1_hi+154,x
+                sbc fmtbl2_hi+<(~154),x
+                clc
+                adc regysize
+                php
+                clc
+                adc regxpos1
+                sta regxpos2
+                lda regxpos1+1
+                adc #0
+                plp
+                adc #0
+                sta regxpos2+1
+                lda regysize
+                clc
+                adc regypos1
+                sta regypos2
+                sta regypos2
+                rts
+                
+keycoderows:
+                .byte ~$40, ~$10, ~$80, ~$8, ~$80
+                .byte ~$80, ~$1, ~$20, ~$20, ~$1
+                .byte ~$1, ~$1, ~$1
+keycodecols:
+                .byte $8, $2, $2, $2, $40
+                .byte $10, $2, $80, $10, $80
+                .byte $80, $4, $4
+joycodes:
+                .byte 16, 1, 2, 4, 8, 5, 9, 6, 10
+keyaddrlotbl:
+                .byte <handlekeyhome, <handledispregion, <handlebackpos
+                .byte <handleconfirmquit, <handlequit, <handlestart, <handleregselect
+                .byte <handleiterdec, <handleiterinc, <handlemoveup, <handlemovedown
+                .byte <handlemoveleft, <handlemoveright, <handlemovelu, <handlemoveru
+                .byte <handlemoveld, <handlemoverd
+keyaddrhitbl:
+                .byte >handlekeyhome,  >handledispregion, >handlebackpos
+                .byte >handleconfirmquit, >handlequit, >handlestart, >handleregselect
+                .byte >handleiterdec, >handleiterinc, >handlemoveup, >handlemovedown
+                .byte >handlemoveleft, >handlemoveright, >handlemovelu, >handlemoveru
+                .byte >handlemoveld, >handlemoverd
+
+instrtext:      .byte 155,147,14
+                .byte "-------MANDELBROT GENERATOR v0.1--------"
+                .byte "Instruction:",13,13
+                .byte "While rendering:",13
+                .byte "RUN/STOP - stop rendering",13,13
+                .byte "After rendering:",13
+                .byte "HOME - start position",13
+                .byte 95," - back to previous position",13
+                .byte "I - display region",13
+                .byte "< - decrease iterations",13
+                .byte "> - increase iterations",13
+                .byte "FIRE/RETURN - start region selection",13
+                .byte "Joy moves/CRSR - choosing region",13
+                .byte "SPACE - start render",13
+                .byte "Q - quit from program",13,13
+                .byte "------------PRESS ANY KEY---------------"
+                .byte 0
+
+                ; character mapping
+                .repeat 31, i
+                .charmap $61+i,i+1
+                .charmap $41+i,$41+i
+                .endrep
+initialtext:
+                .byte "Render time:     000000s"
+runstoptext:    
+                .byte "Press RUN/STOP to stop  "
+finishtext:
+                .byte "Finished"
+stoppedtext:
+                .byte "Stopped "
+iterstext:
+                .byte "Iterations: "
+
+region1text:    .byte "Position 1"
+
+quittext:       .byte "Do you want to quit? Y  "
+
+decsubvals:
+                .byte 100,10,1
+regcursor1:     .byte %11111111
+                .byte %10000000
+                .byte %10000000
+                .byte %10000000
+                .byte %10000000
+                .byte %10000000
+                .byte %10000000
+                .byte %10000000
+                
+regcursor2:     .byte %00000001
+                .byte %00000001
+                .byte %00000001
+                .byte %00000001
+                .byte %00000001
+                .byte %00000001
+                .byte %00000001
+                .byte %11111111
+
+digitvalstbl:
+                ; zero digitval for '.' (indexed by character index)
+                .dword 100000000, 0, 10000000, 1000000, 100000
+                .dword 10000, 1000, 100, 10, 1
+
+initxposstart:  .dword -671088640   ; -2.0
+inityposstart:  .dword -322122547   ; -299/319
+initpixdiff:    .word $1a60, $a603, $31     ; 3/319
+inityposend:    .dword 322122547    ; 299/319
+
+pixelvaltable:
+                .byte $00,$40,$80,$c0
+                .byte $00,$10,$20,$30
+                .byte $00,$04,$08,$0c
+                .byte $00,$01,$02,$03
+btextaddr_lo:
+                .byte $00,$01,$02,$40,$41,$42
+                .byte $80,$81,$82,$c0,$c1,$c2
+                .byte $00,$01,$02,$40,$41,$42
+                .byte $80,$81,$82,$c0,$c1,$c2
+btextaddr_hi:
+                .byte $44,$44,$44,$44,$44,$44
+                .byte $44,$44,$44,$44,$44,$44
+                .byte $45,$45,$45,$45,$45,$45
+                .byte $45,$45,$45,$45,$45,$45
+
+timerdata:
+paltimerdata:
+                .word 30789-1 ; timers interval for PAL
+                .byte 32-1   ; 30789*32 = 985248
+ntsctimerdata:
+                .word 34091-1; timers interval for NTSC
+                .byte 30-1; ; 34091*30 =  1022730                
+
+zpcode:
+fmz_part:
+                ; a1*b1.lo; pos 0
+fmc_a1b1_0:     lda fmtbl1_lo,x
+fmc_a1b1_1:     sbc fmtbl2_lo,x
+                sta fmt_a1b1_lo
+                
+                ; a1*b1.hi; pos 1
+fmc_a1b1_2:     lda fmtbl1_hi,x
+fmc_a1b1_3:     sbc fmtbl2_hi,x
+                sta fmt_a1b1_hi
+                
+                ; a1*b2.lo; pos 1
+fmc_a1b2_0:     lda fmtbl1_lo,x
+fmc_a1b2_1:     sbc fmtbl2_lo,x
+                sta fmt_a1b2_lo
+                
+                ; a1*b2.hi; pos 2
+fmc_a1b2_2:     lda fmtbl1_hi,x
+fmc_a1b2_3:     sbc fmtbl2_hi,x
+                sta fmt_a1b2_hi
+                
+                ; a1*b3.lo; pos 2
+fmc_a1b3_0:     lda fmtbl1_lo,x
+fmc_a1b3_1:     sbc fmtbl2_lo,x
+                sta fmt_a1b3_lo
+                
+                ; a1*b3.hi; pos 3
+fmc_a1b3_2:     lda fmtbl1_hi,x
+fmc_a1b3_3:     sbc fmtbl2_hi,x
+                sta fmt_a1b3_hi
+                
+                ;;;;;;;;;;;;;;;
+                ; a2*b0.lo; pos 0
+fmc_a2b0_0:     lda fmtbl1_lo,y
+fmc_a2b0_1:     sbc fmtbl2_lo,y
+                sta fmt_a2b0_lo
+                
+                ; a2*b0.hi; pos 1
+fmc_a2b0_2:     lda fmtbl1_hi,y
+fmc_a2b0_3:     sbc fmtbl2_hi,y
+                sta fmt_a2b0_hi
+                
+                ; a2*b1.lo; pos 1
+fmc_a2b1_0:     lda fmtbl1_lo,y
+fmc_a2b1_1:     sbc fmtbl2_lo,y
+                sta fmt_a2b1_lo
+                
+                ; a2*b1.hi; pos 2
+fmc_a2b1_2:     lda fmtbl1_hi,y
+fmc_a2b1_3:     sbc fmtbl2_hi,y
+                sta fmt_a2b1_hi
+                
+                ; a2*b2.lo; pos 2
+fmc_a2b2_0:     lda fmtbl1_lo,y
+fmc_a2b2_1:     sbc fmtbl2_lo,y
+                sta fmt_a2b2_lo
+                
+                ; a2*b2.hi; pos 3
+fmc_a2b2_2:     lda fmtbl1_hi,y
+fmc_a2b2_3:     sbc fmtbl2_hi,y
+                
+                jmp fm_back
+
+fsqz_part:
+                ; a3*a0.lo; pos 1
+sqc_a3a0_0:     lda fmtbl1_lo,x
+sqc_a3a0_1:     sbc fmtbl2_lo,x
+                sta <(sqt_a3a0_lo+1+zpx)
+                
+                ; a3*a0.hi; pos 2
+sqc_a3a0_2:     lda fmtbl1_hi,x
+sqc_a3a0_3:     sbc fmtbl2_hi,x
+                sta <(sqt_a3a0_hi+1+zpx)
+                
+                ; a3*a1.lo; pos 2
+sqc_a3a1_0:     lda fmtbl1_lo,x
+sqc_a3a1_1:     sbc fmtbl2_lo,x
+                sta <(sqt_a3a1_lo+1+zpx)
+                
+                ; a3*a1.hi; pos 3
+sqc_a3a1_2:     lda fmtbl1_hi,x
+sqc_a3a1_3:     sbc fmtbl2_hi,x
+                sta <(sqt_a3a1_hi+1+zpx)
+
+                ; a3*a2.lo; pos 3
+sqc_a3a2_0:     lda fmtbl1_lo,x
+sqc_a3a2_1:     sbc fmtbl2_lo,x
+                sta <(sqt_a3a2_lo+1+zpx)
+                
+                ; a3*a2.hi; pos 4
+sqc_a3a2_2:     lda fmtbl1_hi,x
+sqc_a3a2_3:     sbc fmtbl2_hi,x
+                sta <(sqt_a3a2_hi+1+zpx)
+                
+                ; a2*a0.lo; pos 0
+sqc_a2a0_0:     lda fmtbl1_lo,y
+sqc_a2a0_1:     sbc fmtbl2_lo,y
+                sta c32_m2
+                
+                ; a2*a0.hi; pos 1
+sqc_a2a0_2:     lda fmtbl1_hi,y
+sqc_a2a0_3:     sbc fmtbl2_hi,y
+                sta <(sqt_a2a0_hi+1+zpx)
+                
+                ; a2*a1.lo; pos 1
+sqc_a2a1_0:     lda fmtbl1_lo,y
+sqc_a2a1_1:     sbc fmtbl2_lo,y
+                tax
+                
+                ; a2*a1.hi; pos 2
+sqc_a2a1_2:     lda fmtbl1_hi,y
+sqc_a2a1_3:     sbc fmtbl2_hi,y
+                tay
+                ; 2+ 8*11 + 2*10 -> 108 +4 -> + 92 -> 206 cycles 
+                
+                txa
+                clc
+                adc #$04
+                tax
+                tya
+                adc #0
+                tay             ; 14 cycles
+                
+                ;; second part, summing temps
+                txa
+sqt_a2a0_hi:    adc #0
+                tax                 ; 21 cycles
+                tya
+sqt_a3a0_hi:    adc #0
+                tay                 ; 28 cycles
+sqt_a3a1_hi:    lda #0
+sqt_a3a2_lo:    adc #0
+                sta c32_1           ; 37 cycles
+sqt_a3a2_hi:    lda #0
+                adc #0
+                sta c32_2           ; 45 cycles
+                
+                txa
+sqt_a3a0_lo:    adc #0
+                tax                 ; 52 cycles
+                tya
+sqt_a3a1_lo:    adc #0
+                rts
+zpcodeend:
+
+fmtbl1_lo = (*+255)&$ff00
+fmtbl1_hi = fmtbl1_lo+512
+fmtbl2_lo = fmtbl1_lo+512*2
+fmtbl2_hi = fmtbl1_lo+512*3
+sq2tbl_lo = fmtbl1_lo+512*4
+sq2tbl_hi = sq2tbl_lo+256
+asltbl1 = sq2tbl_hi+256
+asltbl2 = asltbl1+256
+asltbl3 = asltbl2+256
+asltbl4 = asltbl3+256
+poshistorytbl = asltbl4+256
+
+.warning .sprintf("%u,%u",zpcodeend-zpcode, creal+4)
+.warning .sprintf("%u",256-(zpcodeend-zpcode+fmtempsend+10))
+.warning .sprintf("$%x,$%x,$%x",xcount,pixeladdr,isdoquit)
