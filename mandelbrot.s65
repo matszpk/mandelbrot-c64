@@ -105,8 +105,7 @@
                 inc @loop+2
                 jmp @loop
 @loopend:
-@nopressed:     jsr $ff9f
-                lda $cb
+@nopressed:     lda $cb
                 cmp #$40
                 beq @nopressed
                 sei
