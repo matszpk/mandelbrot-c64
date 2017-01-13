@@ -6,6 +6,12 @@
                 .byte $08
                 .byte $0b, $08, $01, $00, $9e, $32, $30, $36, $31, $00, $00, $00
                 
+                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                ; about loops and zero page addressing:
+                ; this program uses bug in 6510:
+                ; in indexed zero page addressing, an address is always cut to low bytes
+                ; (address is always in zero page)
+                
                 a32_0 = 2
                 c32_0 = a32_0+4
                 c32_1 = c32_0+1
@@ -2001,7 +2007,7 @@ irqhandler2:
                 sta $d019
                 
                 lda #$3b
-                sta $d011       ; first part of opening borders
+                sta $d011       ; second part of opening borders
                 lda #18
                 sta $d012
                 
