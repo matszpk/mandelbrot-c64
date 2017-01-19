@@ -1,4 +1,4 @@
-                .p02
+                      .p02
                 .segment "STARTUP"
                 ;.word $0801
                 .byte $01
@@ -235,7 +235,7 @@
                 bne @loop2
                 
                 ; init fastmul (zpcode)
-                ldx #0-(zpcodeend-zpcode)
+                ldx #<(0-(zpcodeend-zpcode))
 @fmzploop:      lda zpcodeend-256,x
                 sta <(zpcaddr-256+(zpcodeend-zpcode)),x
                 inx
@@ -318,7 +318,7 @@ screeninit:
                 sta $d027-$f8,x
                 txa
                 clc
-                adc #16-$f8
+                adc #<(16-$f8)
                 sta $43f8-$f8,x
                 inx
                 bne @loop2
@@ -2141,14 +2141,14 @@ skiprunstop:
                 ldx #numstdkeys-1 ; #4
 @keypressed:    cpx #numstdkeys+2 ; #$07
                 bcc @nomoves
-                lda #~2
+                lda #$fd
                 sta $dc00
                 lda $dc01
                 and #$80    ; left shift
                 bne @nextshift
                 dex
                 jmp @nomoves
-@nextshift:     lda #~64
+@nextshift:     lda #255-64
                 sta $dc00
                 lda $dc01
                 and #$10    ; right shift
@@ -2484,9 +2484,9 @@ calcregpos2:
                 rts
                 
 keycoderows:
-                .byte ~$40, ~$10, ~$80, ~$8, ~$80
-                .byte ~$80, ~$1, ~$20, ~$20, ~$1
-                .byte ~$1, ~$1, ~$1
+                .byte <~$40, <~$10, <~$80, <~$8, <~$80
+                .byte <~$80, <~$1, <~$20, <~$20, <~$1
+                .byte <~$1, <~$1, <~$1
 keycodecols:
                 .byte $8, $2, $2, $2, $40
                 .byte $10, $2, $80, $10, $80
@@ -2569,8 +2569,8 @@ digitvalstbl:
                 .dword 100000000, 0, 10000000, 1000000, 100000
                 .dword 10000, 1000, 100, 10, 1
 
-initxposstart:  .dword -671088640   ; -2.0
-inityposstart:  .dword -322122547   ; -299/319
+initxposstart:  .dword $ffffffff-671088640+1   ; -2.0
+inityposstart:  .dword $ffffffff-322122547+1   ; -299/319
 initpixdiff:    .word $1a60, $a603, $31     ; 3/319
 inityposend:    .dword 322122547    ; 299/319
 
