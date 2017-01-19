@@ -1,9 +1,18 @@
-                      .p02
+                .p02
+                ; NEWCA65 - if new CC65 based on configurations
+            .ifdef NEWCA65
+                .export         __LOADADDR__: absolute = 1
+                .segment "LOADADDR"
+                .addr *+2
+                .segment "STARTUP"
+                .code
+            .else
                 .segment "STARTUP"
                 ;.word $0801
                 .byte $01
                 .code
                 .byte $08
+            .endif
                 .byte $0b, $08, $01, $00, $9e, $32, $30, $36, $31, $00, $00, $00
                 
                 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
